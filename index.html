@@ -3,160 +3,128 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>G-1: カメラ・QR読取</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<title>Gate 0 PoC</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     background: #f5f5f5; color: #222; padding: 16px;
   }
-  h1 { font-size: 18px; margin-bottom: 12px; }
-  video { width: 100%; max-width: 400px; border-radius: 8px; background: #000; }
-  canvas { display: none; }
-  .btn {
-    display: block; width: 100%; padding: 14px; font-size: 15px;
-    font-weight: 700; border: none; border-radius: 8px;
-    cursor: pointer; margin-top: 12px;
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { font-size: 12px; color: #888; margin-bottom: 20px; }
+  .card {
+    background: #fff; border-radius: 8px; padding: 16px;
+    margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    cursor: pointer; text-decoration: none; display: block; color: #222;
   }
-  .btn-start { background: #1a73e8; color: #fff; }
-  .btn-stop { background: #e84a1a; color: #fff; }
-  .btn:disabled { background: #ccc; }
-  .counter {
-    font-size: 48px; font-weight: 700; text-align: center;
-    margin: 16px 0;
+  .card:active { background: #f0f0f0; }
+  .card h2 { font-size: 16px; margin-bottom: 4px; }
+  .card p { font-size: 13px; color: #666; }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 4px; margin-right: 4px;
   }
-  .status { font-size: 14px; color: #333; margin: 8px 0; }
-  .log {
-    background: #fff; border: 1px solid #ddd; border-radius: 8px;
-    padding: 12px; font-size: 12px; max-height: 200px;
-    overflow-y: auto; white-space: pre-wrap; margin-top: 12px;
+  .tag-must { background: #fee; color: #c00; }
+  .tag-opt { background: #eef; color: #00c; }
+  .init-btn {
+    display: block; width: 100%; padding: 14px;
+    font-size: 15px; font-weight: 700; border: none;
+    border-radius: 8px; background: #1a73e8; color: #fff;
+    cursor: pointer; margin-bottom: 20px;
   }
-  .notice {
-    background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px;
-    padding: 12px; font-size: 14px; margin-top: 12px; display: none;
+  .init-btn:disabled { background: #ccc; }
+  #initResult {
+    font-size: 13px; color: #333; margin-bottom: 16px;
+    min-height: 20px;
   }
 </style>
 </head>
 <body>
 
-<h1>G-1: カメラ起動・QR読取・物理解放</h1>
+<h1>Gate 0 PoC 試験アプリ</h1>
+<p class="sub">OKABE GROUP タイヤホテルDX — 技術実機検証（Option A: GitHub Pages + GAS API）</p>
 
-<div class="counter" id="count">0 / 10</div>
-<div class="status" id="status">待機中</div>
-
-<video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
-
-<button class="btn btn-start" id="btnStart" onclick="startCycle()">
-  カメラ起動 → QR読取 → 停止（1サイクル）
+<button class="init-btn" id="btnInit" onclick="runInit()">
+  テストデータ初期化（最初に1回押す）
 </button>
+<div id="initResult"></div>
 
-<div class="notice" id="notice">
-  10回連続完了しました。<br>
-  ページを再読込（プルダウンリフレッシュ）して、<br>
-  カメラ権限の再要求ダイアログが出ないことを確認してください。
-</div>
+<a class="card" href="test_camera.html">
+  <h2>G-1: カメラ起動・QR読取・物理解放</h2>
+  <p>カメラ10回連続テスト</p>
+  <span class="tag tag-must">必須ゲート</span>
+</a>
 
-<div class="log" id="log"></div>
+<a class="card" href="test_wakelock.html">
+  <h2>G-2: WakeLock スリープ防止</h2>
+  <p>10分間放置で画面消灯しないか</p>
+  <span class="tag tag-opt">代替あり</span>
+</a>
+
+<a class="card" href="test_storage.html">
+  <h2>G-3 / G-5: LocalStorage保持 / 個人情報非保持</h2>
+  <p>Safari再起動耐性 + 全保存領域ダンプ</p>
+  <span class="tag tag-must">必須ゲート</span>
+</a>
+
+<a class="card" href="test_photo.html">
+  <h2>G-4: Canvas写真圧縮</h2>
+  <p>長辺1280px・JPEG 0.75・EXIF回転・Drive保存</p>
+  <span class="tag tag-opt">修正可</span>
+</a>
+
+<a class="card" href="test_lock.html">
+  <h2>G-6 / G-10: 排他ロック / 楽観ロック</h2>
+  <p>10件同時送信x10回 + version_no競合テスト</p>
+  <span class="tag tag-opt">修正可</span>
+</a>
+
+<a class="card" href="test_trigger.html">
+  <h2>G-7 / G-8: トリガー起動 / 外部呼出遮断</h2>
+  <p>非公開関数(_付き)の起動性・遮断性</p>
+  <span class="tag tag-opt">代替あり</span>
+  <span class="tag tag-must">必須ゲート(G-8)</span>
+</a>
+
+<a class="card" href="test_cache.html">
+  <h2>G-9: CacheService + PropertiesService</h2>
+  <p>更新通知・キャッシュ失効・自律復旧</p>
+  <span class="tag tag-opt">修正可</span>
+</a>
 
 <script>
-var cycleCount = 0;
-var stream = null;
-var scanning = false;
-var animId = null;
+// ============================================================
+// GAS Web App URL（デプロイ後に1箇所だけ書き換える）
+// ============================================================
+var GAS_API_URL = 'PLACEHOLDER_GAS_WEB_APP_URL';
 
-function log(msg) {
-  var el = document.getElementById('log');
-  var ts = new Date().toLocaleTimeString();
-  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+function callGasApi(action, params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: action, params: params || {} }),
+    redirect: 'follow'
+  }).then(function(res) { return res.json(); });
 }
 
-function setStatus(msg) {
-  document.getElementById('status').textContent = msg;
-}
-
-function startCycle() {
-  if (cycleCount >= 10) return;
-  var btn = document.getElementById('btnStart');
+function runInit() {
+  var btn = document.getElementById('btnInit');
+  var result = document.getElementById('initResult');
   btn.disabled = true;
-  setStatus('カメラ起動中...');
-  log('Cycle ' + (cycleCount + 1) + ': カメラ起動要求');
+  btn.textContent = '初期化中...';
+  result.textContent = '';
 
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment' }
-  })
-  .then(function(s) {
-    stream = s;
-    var video = document.getElementById('video');
-    video.srcObject = stream;
-    video.play();
-    setStatus('QRコードをかざしてください');
-    log('Cycle ' + (cycleCount + 1) + ': カメラ起動成功');
-    scanning = true;
-    scanFrame();
-  })
-  .catch(function(err) {
-    log('Cycle ' + (cycleCount + 1) + ': カメラ起動失敗 - ' + err.message);
-    setStatus('カメラ起動失敗: ' + err.message);
-    btn.disabled = false;
-  });
-}
-
-function scanFrame() {
-  if (!scanning) return;
-  var video = document.getElementById('video');
-  var canvas = document.getElementById('canvas');
-
-  if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-    animId = requestAnimationFrame(scanFrame);
-    return;
-  }
-
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  var ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  var qr = jsQR(imageData.data, imageData.width, imageData.height);
-
-  if (qr) {
-    scanning = false;
-    log('Cycle ' + (cycleCount + 1) + ': QR検出 -> "' + qr.data.substring(0, 50) + '"');
-    stopCamera();
-    return;
-  }
-  animId = requestAnimationFrame(scanFrame);
-}
-
-function stopCamera() {
-  setStatus('カメラ停止中...');
-  if (stream) {
-    stream.getTracks().forEach(function(t) { t.stop(); });
-    log('Cycle ' + (cycleCount + 1) + ': stream.getTracks().forEach(t => t.stop()) 実行');
-    stream = null;
-  }
-  var video = document.getElementById('video');
-  video.srcObject = null;
-
-  if (animId) {
-    cancelAnimationFrame(animId);
-    animId = null;
-  }
-
-  cycleCount++;
-  document.getElementById('count').textContent = cycleCount + ' / 10';
-  log('Cycle ' + cycleCount + ': 完了');
-
-  if (cycleCount >= 10) {
-    setStatus('10回連続完了');
-    document.getElementById('notice').style.display = 'block';
-    document.getElementById('btnStart').style.display = 'none';
-    log('=== 10回連続テスト完了 ===');
-  } else {
-    setStatus('次のサイクルを開始できます');
-    document.getElementById('btnStart').disabled = false;
-  }
+  callGasApi('setupAndInit')
+    .then(function(res) {
+      btn.disabled = false;
+      btn.textContent = 'テストデータ初期化（最初に1回押す）';
+      result.textContent = JSON.stringify(res);
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'テストデータ初期化（最初に1回押す）';
+      result.textContent = 'ERROR: ' + err.message;
+    });
 }
 </script>
 

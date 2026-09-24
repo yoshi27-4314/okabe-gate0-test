@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-6/G-10: Lock</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h2 { font-size: 15px; margin: 16px 0 8px; }
+  .sub { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .section {
+    background: #fff; border-radius: 8px; padding: 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .btn-blue { background: #1a73e8; color: #fff; }
+  .btn-green { background: #34a853; color: #fff; }
+  .btn-orange { background: #ea8600; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .stats {
+    font-size: 14px; margin: 8px 0;
+  }
+  .stats td:first-child { font-weight: 700; padding-right: 12px; }
+  .big-result {
+    font-size: 36px; font-weight: 700; text-align: center;
+    padding: 16px; border-radius: 8px; margin: 8px 0;
+  }
+  .ok { background: #d4edda; color: #155724; }
+  .ng { background: #f8d7da; color: #721c24; }
+  .info { background: #cce5ff; color: #004085; }
+  .wait { background: #fff3cd; color: #856404; }
+  .log {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 11px; max-height: 200px;
+    overflow-y: auto; white-space: pre-wrap; margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>G-6: 排他ロック / G-10: 楽観ロック</h1>
+<p class="sub">LockServiceベンチマーク + version_no競合テスト</p>
+
+<div class="section">
+  <h2>G-6: LockService 排他ベンチマーク</h2>
+  <p style="font-size:12px;color:#666;margin-bottom:8px;">
+    「10件同時送信」を10回押して計100件。95pctl 3000ms以内で合格。
+  </p>
+
+  <button class="btn btn-blue" id="btnBatch" onclick="runBatch()">
+    10件同時送信
+  </button>
+
+  <div class="stats">
+    <table>
+      <tr><td>累計件数</td><td id="totalCount">0</td></tr>
+      <tr><td>タイムアウト</td><td id="timeoutCount">0</td></tr>
+      <tr><td>95pctl</td><td id="p95">-</td></tr>
+      <tr><td>最大</td><td id="maxWait">-</td></tr>
+      <tr><td>バッチ回数</td><td id="batchCount">0 / 10</td></tr>
+    </table>
+  </div>
+
+  <div class="log" id="logG6"></div>
+</div>
+
+<div class="section">
+  <h2>G-10: version_no 楽観ロック</h2>
+  <p style="font-size:12px;color:#666;margin-bottom:8px;">
+    WO-TEST を2台から同時に「S03作業開始」して競合を確認。
+  </p>
+
+  <div id="versionDisplay" class="stats" style="font-size:16px;">
+    version_no: <span id="currentVersion">-</span>
+    / status: <span id="currentStatus">-</span>
+  </div>
+
+  <button class="btn btn-green" id="btnUpdate" onclick="runUpdate()">
+    S03 作業開始（version_no送信）
+  </button>
+  <button class="btn btn-orange" onclick="runReset()">
+    WO-TEST をリセット（S02_CHECKED_IN / version_no=1）
+  </button>
+
+  <div class="big-result wait" id="g10result">待機中</div>
+
+  <div class="log" id="logG10"></div>
+</div>
+
+<script>
+// ============================================================
+// GAS Web App URL（デプロイ後に1箇所だけ書き換える）
+// ============================================================
+var GAS_API_URL = 'PLACEHOLDER_GAS_WEB_APP_URL';
+
+function callGasApi(action, params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: action, params: params || {} }),
+    redirect: 'follow'
+  }).then(function(res) { return res.json(); });
+}
+
+var allWaits = [];
+var batchNum = 0;
+var timeouts = 0;
+var clientVersionNo = null;
+
+function logG6(msg) {
+  var el = document.getElementById('logG6');
+  var ts = new Date().toLocaleTimeString();
+  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+}
+
+function logG10(msg) {
+  var el = document.getElementById('logG10');
+  var ts = new Date().toLocaleTimeString();
+  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+}
+
+function calcP95(arr) {
+  if (arr.length === 0) return 0;
+  var sorted = arr.slice().sort(function(a, b) { return a - b; });
+  var idx = Math.ceil(sorted.length * 0.95) - 1;
+  return sorted[idx];
+}
+
+function updateStats() {
+  document.getElementById('totalCount').textContent = allWaits.length;
+  document.getElementById('timeoutCount').textContent = timeouts;
+  document.getElementById('batchCount').textContent = batchNum + ' / 10';
+  if (allWaits.length > 0) {
+    document.getElementById('p95').textContent = calcP95(allWaits) + ' ms';
+    document.getElementById('maxWait').textContent =
+      Math.max.apply(null, allWaits) + ' ms';
+  }
+}
+
+function runBatch() {
+  if (batchNum >= 10) {
+    logG6('10回完了済み');
+    return;
+  }
+  batchNum++;
+  var btn = document.getElementById('btnBatch');
+  btn.disabled = true;
+  btn.textContent = 'Batch ' + batchNum + ' 送信中...';
+  logG6('=== Batch ' + batchNum + ' start (10件) ===');
+
+  var promises = [];
+  for (var i = 0; i < 10; i++) {
+    var reqId = 'B' + batchNum + '-R' + (i + 1);
+    promises.push(
+      callGasApi('testWriteWithLock', { requestId: reqId })
+        .catch(function(err) {
+          return { ok: false, code: 'CLIENT_ERROR', requestId: reqId,
+                   lockWaitMs: 0, error: err.message };
+        })
+    );
+  }
+
+  Promise.all(promises).then(function(results) {
+    results.forEach(function(r) {
+      if (r.ok) {
+        allWaits.push(r.lockWaitMs);
+        logG6(r.requestId + ': ' + r.lockWaitMs + 'ms');
+      } else {
+        timeouts++;
+        logG6((r.requestId || '?') + ': TIMEOUT (' + r.lockWaitMs + 'ms)');
+      }
+    });
+    updateStats();
+    btn.disabled = false;
+    btn.textContent = batchNum >= 10
+      ? '10回完了'
+      : '10件同時送信 (' + (batchNum + 1) + '回目)';
+    if (batchNum >= 10) btn.disabled = true;
+  });
+}
+
+function loadVersion() {
+  callGasApi('testResetOrder', { orderId: 'WO-TEST' })
+    .then(function(res) {
+      if (res.ok) {
+        clientVersionNo = res.version_no;
+        document.getElementById('currentVersion').textContent = res.version_no;
+        document.getElementById('currentStatus').textContent = res.work_status;
+        logG10('読込: version_no=' + res.version_no +
+               ', status=' + res.work_status);
+      }
+    })
+    .catch(function(err) {
+      logG10('読込失敗: ' + err.message);
+    });
+}
+
+function runUpdate() {
+  if (clientVersionNo === null) {
+    logG10('version_noが未取得。リセットを先に押してください。');
+    return;
+  }
+  var resultEl = document.getElementById('g10result');
+  resultEl.className = 'big-result wait';
+  resultEl.textContent = '送信中...';
+  logG10('送信: orderId=WO-TEST, clientVersionNo=' + clientVersionNo);
+
+  callGasApi('testUpdateWithVersionNo', { orderId: 'WO-TEST', clientVersionNo: clientVersionNo })
+    .then(function(res) {
+      logG10('結果: ' + JSON.stringify(res));
+      if (res.ok && res.code === 'ALREADY_IN_STATE') {
+        resultEl.className = 'big-result info';
+        resultEl.textContent = 'ALREADY_IN_STATE';
+      } else if (res.ok) {
+        resultEl.className = 'big-result ok';
+        resultEl.textContent = 'SUCCESS (v' + res.newVersion + ')';
+        clientVersionNo = res.newVersion;
+        document.getElementById('currentVersion').textContent = res.newVersion;
+        document.getElementById('currentStatus').textContent = res.newStatus;
+      } else if (res.code === 'ERR_VERSION_CONFLICT') {
+        resultEl.className = 'big-result ng';
+        resultEl.textContent = 'ERR_VERSION_CONFLICT\nserver=' +
+          res.serverVersion + ' / client=' + res.clientVersion;
+      } else {
+        resultEl.className = 'big-result ng';
+        resultEl.textContent = res.code;
+      }
+    })
+    .catch(function(err) {
+      resultEl.className = 'big-result ng';
+      resultEl.textContent = 'ERROR: ' + err.message;
+      logG10('失敗: ' + err.message);
+    });
+}
+
+function runReset() {
+  callGasApi('testResetOrder', { orderId: 'WO-TEST' })
+    .then(function(res) {
+      clientVersionNo = res.version_no;
+      document.getElementById('currentVersion').textContent = res.version_no;
+      document.getElementById('currentStatus').textContent = res.work_status;
+      document.getElementById('g10result').className = 'big-result wait';
+      document.getElementById('g10result').textContent = '待機中';
+      logG10('リセット完了: version_no=' + res.version_no);
+    })
+    .catch(function(err) {
+      logG10('リセット失敗: ' + err.message);
+    });
+}
+
+loadVersion();
+</script>
+
+</body>
+</html>

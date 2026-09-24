@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-3/G-5: Storage</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h2 { font-size: 15px; margin: 16px 0 8px; }
+  .sub { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .btn-blue { background: #1a73e8; color: #fff; }
+  .btn-green { background: #34a853; color: #fff; }
+  .btn-orange { background: #ea8600; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .result {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 13px; margin-bottom: 12px;
+    min-height: 40px;
+  }
+  .dump {
+    background: #1a1a2e; color: #0f0; border-radius: 8px;
+    padding: 12px; font-size: 11px; max-height: 300px;
+    overflow-y: auto; white-space: pre-wrap; margin-bottom: 12px;
+    font-family: monospace;
+  }
+  .section {
+    background: #fff; border-radius: 8px; padding: 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+</style>
+</head>
+<body>
+
+<h1>G-3: LocalStorage保持 / G-5: 個人情報非保持</h1>
+<p class="sub">Safari再起動耐性 + 全保存領域ダンプ</p>
+
+<div class="section">
+  <h2>G-3: LocalStorage 書込み・復元テスト</h2>
+
+  <button class="btn btn-blue" onclick="writeTestData()">
+    テストデータを書込む（1.5秒後に自動保存）
+  </button>
+  <div class="result" id="writeResult"></div>
+
+  <button class="btn btn-green" onclick="readTestData()">
+    保存値を復元表示
+  </button>
+  <div class="result" id="readResult"></div>
+
+  <p style="font-size:12px;color:#666;margin-top:8px;">
+    手順: 書込み → Safariを完全終了(上スワイプ) → Safari再起動 → このページを開く → 「復元表示」を押す
+  </p>
+</div>
+
+<div class="section">
+  <h2>G-5: 全保存領域ダンプ</h2>
+  <button class="btn btn-orange" onclick="dumpAll()">
+    全保存領域をダンプ
+  </button>
+
+  <h3 style="font-size:13px;margin:12px 0 4px;">LocalStorage</h3>
+  <div class="dump" id="dumpLS">（未取得）</div>
+
+  <h3 style="font-size:13px;margin:12px 0 4px;">IndexedDB</h3>
+  <div class="dump" id="dumpIDB">（未取得）</div>
+
+  <h3 style="font-size:13px;margin:12px 0 4px;">Cookie</h3>
+  <div class="dump" id="dumpCookie">（未取得）</div>
+
+  <h3 style="font-size:13px;margin:12px 0 4px;">Cache Storage</h3>
+  <div class="dump" id="dumpCache">（未取得）</div>
+</div>
+
+<script>
+var LS_KEY = 'gate0_poc_test';
+
+function writeTestData() {
+  var el = document.getElementById('writeResult');
+  el.textContent = '1.5秒後に保存します...';
+  setTimeout(function() {
+    var data = {
+      order_id: 'WO-TEST',
+      fl: 4.8,
+      fr: 5.2,
+      rl: 4.5,
+      rr: 4.3,
+      ts: Date.now()
+    };
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(data));
+      el.textContent = '保存完了: ' + JSON.stringify(data);
+    } catch (err) {
+      el.textContent = '保存失敗: ' + err.message;
+    }
+  }, 1500);
+}
+
+function readTestData() {
+  var el = document.getElementById('readResult');
+  try {
+    var raw = localStorage.getItem(LS_KEY);
+    if (raw === null) {
+      el.textContent = 'キーが存在しません（保存されていないか、消去されています）';
+    } else {
+      el.textContent = '復元成功: ' + raw;
+    }
+  } catch (err) {
+    el.textContent = '読取失敗: ' + err.message;
+  }
+}
+
+function dumpAll() {
+  dumpLocalStorage();
+  dumpIndexedDB();
+  dumpCookies();
+  dumpCacheStorage();
+}
+
+function dumpLocalStorage() {
+  var el = document.getElementById('dumpLS');
+  try {
+    var lines = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      var val = localStorage.getItem(key);
+      lines.push(key + ' = ' + val);
+    }
+    el.textContent = lines.length > 0
+      ? lines.join('\n')
+      : '（空: キーなし）';
+  } catch (err) {
+    el.textContent = 'エラー: ' + err.message;
+  }
+}
+
+function dumpIndexedDB() {
+  var el = document.getElementById('dumpIDB');
+  if (!window.indexedDB) {
+    el.textContent = 'IndexedDB 非対応';
+    return;
+  }
+  if (typeof indexedDB.databases === 'function') {
+    indexedDB.databases().then(function(dbs) {
+      if (dbs.length === 0) {
+        el.textContent = '（空: データベースなし）';
+      } else {
+        var lines = dbs.map(function(db) {
+          return 'name=' + db.name + ', version=' + db.version;
+        });
+        el.textContent = lines.join('\n');
+      }
+    }).catch(function(err) {
+      el.textContent = 'エラー: ' + err.message;
+    });
+  } else {
+    el.textContent = 'indexedDB.databases() 非対応（このブラウザではDB一覧を列挙できません）';
+  }
+}
+
+function dumpCookies() {
+  var el = document.getElementById('dumpCookie');
+  var c = document.cookie;
+  el.textContent = c ? c : '（空: Cookieなし）';
+}
+
+function dumpCacheStorage() {
+  var el = document.getElementById('dumpCache');
+  if (!('caches' in window)) {
+    el.textContent = 'Cache Storage API 非対応';
+    return;
+  }
+  caches.keys().then(function(names) {
+    if (names.length === 0) {
+      el.textContent = '（空: キャッシュなし）';
+    } else {
+      el.textContent = names.join('\n');
+    }
+  }).catch(function(err) {
+    el.textContent = 'エラー: ' + err.message;
+  });
+}
+</script>
+
+</body>
+</html>

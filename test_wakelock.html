@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-2: WakeLock</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 12px; }
+  .timer {
+    font-size: 72px; font-weight: 700; text-align: center;
+    margin: 32px 0; font-variant-numeric: tabular-nums;
+  }
+  .status {
+    text-align: center; font-size: 16px; padding: 12px;
+    border-radius: 8px; margin-bottom: 16px;
+  }
+  .ok { background: #d4edda; color: #155724; }
+  .ng { background: #f8d7da; color: #721c24; }
+  .wait { background: #fff3cd; color: #856404; }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-top: 12px;
+  }
+  .btn-start { background: #1a73e8; color: #fff; }
+  .btn-stop { background: #e84a1a; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .error {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 12px; margin-top: 12px;
+    white-space: pre-wrap; display: none;
+  }
+  .note {
+    font-size: 13px; color: #666; margin-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<h1>G-2: WakeLock スリープ防止</h1>
+
+<div class="status wait" id="status">待機中</div>
+<div class="timer" id="timer">0:00</div>
+
+<button class="btn btn-start" id="btnStart" onclick="startWakeLock()">
+  WakeLock 取得開始
+</button>
+<button class="btn btn-stop" id="btnStop" onclick="stopWakeLock()" style="display:none;">
+  WakeLock 解放
+</button>
+
+<div class="error" id="error"></div>
+
+<p class="note">
+  iPhoneの「設定 → 画面表示と明るさ → 自動ロック」を「1分」に設定してからテストしてください。
+  10分間一度も画面が暗転しなければ合格です。
+</p>
+
+<script>
+var wakeLock = null;
+var startTime = null;
+var intervalId = null;
+
+function updateTimer() {
+  if (!startTime) return;
+  var elapsed = Math.floor((Date.now() - startTime) / 1000);
+  var min = Math.floor(elapsed / 60);
+  var sec = elapsed % 60;
+  document.getElementById('timer').textContent =
+    min + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+function startWakeLock() {
+  var statusEl = document.getElementById('status');
+  var errorEl = document.getElementById('error');
+
+  if (!('wakeLock' in navigator)) {
+    statusEl.className = 'status ng';
+    statusEl.textContent = 'navigator.wakeLock 非対応（この環境では使用不可）';
+    errorEl.style.display = 'block';
+    errorEl.textContent = 'navigator.wakeLock is undefined.\nこのブラウザまたはiframe環境ではWakeLock APIが利用できません。';
+    return;
+  }
+
+  statusEl.className = 'status wait';
+  statusEl.textContent = 'WakeLock 取得中...';
+
+  navigator.wakeLock.request('screen')
+    .then(function(lock) {
+      wakeLock = lock;
+      startTime = Date.now();
+      intervalId = setInterval(updateTimer, 1000);
+
+      statusEl.className = 'status ok';
+      statusEl.textContent = 'WakeLock 取得成功 — 画面を触らず放置してください';
+
+      document.getElementById('btnStart').style.display = 'none';
+      document.getElementById('btnStop').style.display = 'block';
+
+      wakeLock.addEventListener('release', function() {
+        statusEl.className = 'status ng';
+        statusEl.textContent = 'WakeLock が解放されました（OS または別の要因）';
+        if (intervalId) clearInterval(intervalId);
+      });
+    })
+    .catch(function(err) {
+      statusEl.className = 'status ng';
+      statusEl.textContent = 'WakeLock 取得失敗';
+      errorEl.style.display = 'block';
+      errorEl.textContent = err.name + ': ' + err.message;
+    });
+}
+
+function stopWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+  document.getElementById('status').className = 'status wait';
+  document.getElementById('status').textContent = '手動解放済み';
+  document.getElementById('btnStart').style.display = 'block';
+  document.getElementById('btnStop').style.display = 'none';
+}
+</script>
+
+</body>
+</html>

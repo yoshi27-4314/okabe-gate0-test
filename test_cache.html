@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-9: Cache+Properties</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 12px; }
+  .section {
+    background: #fff; border-radius: 8px; padding: 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .btn-blue { background: #1a73e8; color: #fff; }
+  .btn-green { background: #34a853; color: #fff; }
+  .btn-orange { background: #ea8600; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .result {
+    background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 14px; margin: 8px 0; min-height: 40px;
+    font-family: monospace;
+  }
+  .step {
+    font-size: 13px; color: #333; margin-bottom: 8px;
+    padding: 8px; background: #e8f0fe; border-radius: 4px;
+  }
+  .log {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 11px; max-height: 200px;
+    overflow-y: auto; white-space: pre-wrap; margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>G-9: CacheService + PropertiesService 連動テスト</h1>
+
+<div class="section">
+  <div class="step">
+    手順1: 「タイムスタンプ書込」を押す（端末A相当）
+  </div>
+  <button class="btn btn-blue" onclick="runSet()">
+    タイムスタンプ書込（Cache + Properties 両方）
+  </button>
+  <div class="result" id="setResult">-</div>
+</div>
+
+<div class="section">
+  <div class="step">
+    手順2: 「ポーリング取得」を押す（端末B相当）→ 即時検知できるか
+  </div>
+  <button class="btn btn-green" onclick="runGet()">
+    ポーリング取得（LAST_MUTATION_TS）
+  </button>
+  <div class="result" id="getResult">-</div>
+</div>
+
+<div class="section">
+  <div class="step">
+    手順3: 「キャッシュ消去」を押す → 再度「ポーリング取得」を押す →
+    PropertiesService から復旧（re-cached）されるか
+  </div>
+  <button class="btn btn-orange" onclick="runClear()">
+    CacheService のみ消去
+  </button>
+  <div class="result" id="clearResult">-</div>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+// ============================================================
+// GAS Web App URL（デプロイ後に1箇所だけ書き換える）
+// ============================================================
+var GAS_API_URL = 'PLACEHOLDER_GAS_WEB_APP_URL';
+
+function callGasApi(action, params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: action, params: params || {} }),
+    redirect: 'follow'
+  }).then(function(res) { return res.json(); });
+}
+
+function log(msg) {
+  var el = document.getElementById('log');
+  var ts = new Date().toLocaleTimeString();
+  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+}
+
+function runSet() {
+  document.getElementById('setResult').textContent = '書込中...';
+  callGasApi('testSetMutationTs')
+    .then(function(res) {
+      document.getElementById('setResult').textContent = JSON.stringify(res);
+      log('SET: ' + JSON.stringify(res));
+    })
+    .catch(function(err) {
+      document.getElementById('setResult').textContent = 'ERROR: ' + err.message;
+      log('SET ERROR: ' + err.message);
+    });
+}
+
+function runGet() {
+  document.getElementById('getResult').textContent = '取得中...';
+  callGasApi('testGetMutationTs')
+    .then(function(res) {
+      document.getElementById('getResult').textContent = JSON.stringify(res);
+      log('GET: ' + JSON.stringify(res));
+    })
+    .catch(function(err) {
+      document.getElementById('getResult').textContent = 'ERROR: ' + err.message;
+      log('GET ERROR: ' + err.message);
+    });
+}
+
+function runClear() {
+  document.getElementById('clearResult').textContent = '消去中...';
+  callGasApi('testClearCache')
+    .then(function(res) {
+      document.getElementById('clearResult').textContent = JSON.stringify(res);
+      log('CLEAR: ' + JSON.stringify(res));
+    })
+    .catch(function(err) {
+      document.getElementById('clearResult').textContent = 'ERROR: ' + err.message;
+      log('CLEAR ERROR: ' + err.message);
+    });
+}
+</script>
+
+</body>
+</html>

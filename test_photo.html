@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-4: Canvas写真圧縮</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 12px; }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .btn-blue { background: #1a73e8; color: #fff; }
+  .btn-counter { background: #34a853; color: #fff; font-size: 20px; }
+  .btn:disabled { background: #ccc; }
+  .stats {
+    background: #fff; border-radius: 8px; padding: 12px;
+    margin-bottom: 12px; font-size: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .stats td:first-child { font-weight: 700; padding-right: 12px; }
+  .preview {
+    width: 100%; max-width: 400px; border-radius: 8px;
+    margin: 12px 0; display: none;
+  }
+  .log {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 12px; max-height: 200px;
+    overflow-y: auto; white-space: pre-wrap; margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>G-4: Canvas写真圧縮・EXIF回転・Drive保存</h1>
+
+<label class="btn btn-blue">
+  写真を撮影・選択
+  <input type="file" accept="image/*" capture="environment"
+         id="fileInput" onchange="handleFile(this)" style="display:none;">
+</label>
+
+<div class="stats" id="stats" style="display:none;">
+  <table>
+    <tr><td>元サイズ</td><td id="origSize">-</td></tr>
+    <tr><td>圧縮後</td><td id="compSize">-</td></tr>
+    <tr><td>削減率</td><td id="reduction">-</td></tr>
+    <tr><td>Drive保存</td><td id="driveStatus">-</td></tr>
+  </table>
+</div>
+
+<img class="preview" id="preview">
+
+<button class="btn btn-counter" id="btnCounter" onclick="incrementCounter()">
+  送信中操作テスト: 0 回タップ
+</button>
+
+<div class="log" id="log"></div>
+
+<script>
+// ============================================================
+// GAS Web App URL（デプロイ後に1箇所だけ書き換える）
+// ============================================================
+var GAS_API_URL = 'PLACEHOLDER_GAS_WEB_APP_URL';
+
+function callGasApi(action, params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: action, params: params || {} }),
+    redirect: 'follow'
+  }).then(function(res) { return res.json(); });
+}
+
+var tapCount = 0;
+
+function incrementCounter() {
+  tapCount++;
+  document.getElementById('btnCounter').textContent =
+    '送信中操作テスト: ' + tapCount + ' 回タップ';
+}
+
+function log(msg) {
+  var el = document.getElementById('log');
+  var ts = new Date().toLocaleTimeString();
+  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+}
+
+function readExifOrientation(file, callback) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var view = new DataView(e.target.result);
+    if (view.getUint16(0, false) !== 0xFFD8) {
+      callback(1);
+      return;
+    }
+    var offset = 2;
+    while (offset < view.byteLength) {
+      if (view.getUint16(offset, false) === 0xFFE1) {
+        var tiffOffset = offset + 10;
+        var littleEndian = view.getUint16(tiffOffset, false) === 0x4949;
+        var numEntries = view.getUint16(tiffOffset + 8, littleEndian);
+        for (var i = 0; i < numEntries; i++) {
+          var entryOffset = tiffOffset + 10 + i * 12;
+          if (entryOffset + 12 > view.byteLength) break;
+          if (view.getUint16(entryOffset, littleEndian) === 0x0112) {
+            callback(view.getUint16(entryOffset + 8, littleEndian));
+            return;
+          }
+        }
+        callback(1);
+        return;
+      }
+      offset += 2 + view.getUint16(offset + 2, false);
+    }
+    callback(1);
+  };
+  reader.readAsArrayBuffer(file.slice(0, 65536));
+}
+
+function handleFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+
+  var origKB = (file.size / 1024).toFixed(1);
+  document.getElementById('origSize').textContent = origKB + ' KB';
+  document.getElementById('stats').style.display = 'block';
+  document.getElementById('compSize').textContent = '処理中...';
+  document.getElementById('driveStatus').textContent = '-';
+  document.getElementById('reduction').textContent = '-';
+  log('元ファイル: ' + file.name + ' (' + origKB + ' KB)');
+
+  readExifOrientation(file, function(orientation) {
+    log('EXIF Orientation: ' + orientation);
+    var img = new Image();
+    img.onload = function() {
+      compressAndUpload(img, orientation, file.size);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function compressAndUpload(img, orientation, origSize) {
+  var maxDim = 1280;
+  var w = img.naturalWidth;
+  var h = img.naturalHeight;
+
+  var needsSwap = (orientation >= 5 && orientation <= 8);
+  var srcW = needsSwap ? h : w;
+  var srcH = needsSwap ? w : h;
+
+  var scale = Math.min(maxDim / srcW, maxDim / srcH, 1);
+  var outW = Math.round(srcW * scale);
+  var outH = Math.round(srcH * scale);
+
+  var canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  var ctx = canvas.getContext('2d');
+
+  if (orientation === 1) {
+    ctx.drawImage(img, 0, 0, outW, outH);
+  } else {
+    ctx.save();
+    switch (orientation) {
+      case 2: ctx.translate(outW, 0); ctx.scale(-1, 1); break;
+      case 3: ctx.translate(outW, outH); ctx.rotate(Math.PI); break;
+      case 4: ctx.translate(0, outH); ctx.scale(1, -1); break;
+      case 5: canvas.width = outH; canvas.height = outW;
+              ctx.rotate(Math.PI / 2); ctx.scale(1, -1); break;
+      case 6: canvas.width = outH; canvas.height = outW;
+              ctx.translate(outH, 0); ctx.rotate(Math.PI / 2); break;
+      case 7: canvas.width = outH; canvas.height = outW;
+              ctx.translate(outH, outW); ctx.rotate(-Math.PI / 2);
+              ctx.scale(-1, 1); break;
+      case 8: canvas.width = outH; canvas.height = outW;
+              ctx.translate(0, outW); ctx.rotate(-Math.PI / 2); break;
+    }
+    ctx.drawImage(img, 0, 0, outW, outH);
+    ctx.restore();
+  }
+
+  canvas.toBlob(function(blob) {
+    var compKB = (blob.size / 1024).toFixed(1);
+    var reduction = (100 - blob.size / origSize * 100).toFixed(1);
+    document.getElementById('compSize').textContent = compKB + ' KB';
+    document.getElementById('reduction').textContent = reduction + '% 削減';
+    log('圧縮完了: ' + compKB + ' KB (' + reduction + '% 削減)');
+
+    var preview = document.getElementById('preview');
+    preview.src = URL.createObjectURL(blob);
+    preview.style.display = 'block';
+
+    document.getElementById('driveStatus').textContent = '送信中...';
+    log('Drive送信開始（非同期）');
+
+    var reader = new FileReader();
+    reader.onload = function() {
+      var base64 = reader.result.split(',')[1];
+      var fileName = 'poc_test_' + Date.now() + '.jpg';
+      callGasApi('savePhotoToDrive', { base64Data: base64, fileName: fileName })
+        .then(function(res) {
+          if (res.ok) {
+            document.getElementById('driveStatus').textContent =
+              '保存完了 (' + (res.fileSize / 1024).toFixed(1) + ' KB)';
+            log('Drive保存成功: ' + res.fileName + ' / ' + res.fileUrl);
+          } else {
+            document.getElementById('driveStatus').textContent = '失敗: ' + res.code;
+            log('Drive保存失敗: ' + res.code + ' ' + res.message);
+          }
+        })
+        .catch(function(err) {
+          document.getElementById('driveStatus').textContent = '失敗: ' + err.message;
+          log('Drive保存失敗: ' + err.message);
+        });
+    };
+    reader.readAsDataURL(blob);
+  }, 'image/jpeg', 0.75);
+}
+</script>
+
+</body>
+</html>

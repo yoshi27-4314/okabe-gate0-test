@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G-7/G-8: Trigger</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f5f5; color: #222; padding: 16px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h2 { font-size: 15px; margin: 16px 0 8px; }
+  .sub { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .section {
+    background: #fff; border-radius: 8px; padding: 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .btn {
+    display: block; width: 100%; padding: 14px; font-size: 15px;
+    font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; margin-bottom: 8px;
+  }
+  .btn-blue { background: #1a73e8; color: #fff; }
+  .btn-orange { background: #ea8600; color: #fff; }
+  .btn-red { background: #dc3545; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .big-result {
+    font-size: 28px; font-weight: 700; text-align: center;
+    padding: 16px; border-radius: 8px; margin: 8px 0;
+  }
+  .ok { background: #d4edda; color: #155724; }
+  .ng { background: #f8d7da; color: #721c24; }
+  .wait { background: #fff3cd; color: #856404; }
+  .note {
+    font-size: 12px; color: #666; margin-bottom: 8px;
+    line-height: 1.6;
+  }
+  .log {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 12px; font-size: 11px; max-height: 200px;
+    overflow-y: auto; white-space: pre-wrap; margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>G-7: トリガー起動 / G-8: 外部呼出遮断</h1>
+<p class="sub">非公開関数(_付き)の起動性・遮断性検証</p>
+
+<div class="section">
+  <h2>G-7: 非公開関数のトリガー起動</h2>
+  <p class="note">
+    方式A: test_trigger_runner_ を直接トリガー登録<br>
+    方式B(代替): test_trigger_entry(公開名) → triggerUid照合 → test_trigger_runner_ 呼出<br>
+    いずれもGASエディタの「実行」から手動実行してください。<br>
+    60秒後にtrigger_logシートを確認し、SUCCESSが記録されていれば合格。
+  </p>
+
+  <p class="note" style="color:#c00;">
+    ※ setupTestTrigger / setupTestTriggerFallback はGASエディタから直接実行する関数です。<br>
+    この画面のボタンからは実行しません（トリガー登録はサーバー側で行う必要があるため）。
+  </p>
+</div>
+
+<div class="section">
+  <h2>G-8a: doPost ルーティング遮断確認</h2>
+  <p class="note">
+    doPost に action='batch_draft_cleanup_' を送信し、<br>
+    UNKNOWN_ACTION で拒否されることを確認します。
+  </p>
+
+  <button class="btn btn-red" onclick="testG8a()">
+    fetch で batch_draft_cleanup_ を送信
+  </button>
+
+  <div class="big-result wait" id="g8aresult">待機中</div>
+
+  <p class="note">
+    「BLOCKED (UNKNOWN_ACTION)」と表示されれば合格。<br>
+    「SECURITY_BREACH」と表示された場合は不合格。
+  </p>
+
+  <div class="log" id="logG8a"></div>
+</div>
+
+<div class="section">
+  <h2>G-8b: GASエンジンの google.script.run ブロック確認</h2>
+  <p class="note">
+    この試験はGAS iframe版（旧構成）でのみ実施可能。<br>
+    GASエディタからデプロイしたWeb App URLを直接開き、<br>
+    test_trigger画面で google.script.run.batch_draft_cleanup_() を実行して<br>
+    GASエンジンが _ 付き関数の呼出をブロックするか確認する。<br>
+    <strong>結果は手順書に手動で記録する。</strong>
+  </p>
+</div>
+
+<script>
+// ============================================================
+// GAS Web App URL（デプロイ後に1箇所だけ書き換える）
+// ============================================================
+var GAS_API_URL = 'PLACEHOLDER_GAS_WEB_APP_URL';
+
+function callGasApi(action, params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: action, params: params || {} }),
+    redirect: 'follow'
+  }).then(function(res) { return res.json(); });
+}
+
+function logG8a(msg) {
+  var el = document.getElementById('logG8a');
+  var ts = new Date().toLocaleTimeString();
+  el.textContent = '[' + ts + '] ' + msg + '\n' + el.textContent;
+}
+
+function testG8a() {
+  var resultEl = document.getElementById('g8aresult');
+  resultEl.className = 'big-result wait';
+  resultEl.textContent = '送信中...';
+  logG8a('fetch で action=batch_draft_cleanup_ を送信');
+
+  callGasApi('batch_draft_cleanup_')
+    .then(function(res) {
+      logG8a('応答: ' + JSON.stringify(res));
+      if (res.ok === false && res.code === 'UNKNOWN_ACTION') {
+        resultEl.className = 'big-result ok';
+        resultEl.textContent = 'BLOCKED (UNKNOWN_ACTION)\ndoPostルーティングで拒否（合格）';
+        logG8a('G-8a 合格: UNKNOWN_ACTION で拒否された');
+      } else {
+        resultEl.className = 'big-result ng';
+        resultEl.textContent = 'SECURITY_BREACH\n呼出が通ってしまった（不合格）';
+        logG8a('G-8a 不合格: 関数が実行された');
+      }
+    })
+    .catch(function(err) {
+      resultEl.className = 'big-result ok';
+      resultEl.textContent = 'BLOCKED\nリクエスト自体が拒否された（合格）';
+      logG8a('G-8a 合格（エラー）: ' + err.message);
+    });
+}
+</script>
+
+</body>
+</html>
