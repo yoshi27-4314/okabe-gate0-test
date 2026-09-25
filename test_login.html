@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loginWithPassword 動作確認</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f5f5; color: #222; padding: 16px; }
+  h1 { font-size: 18px; margin-bottom: 16px; }
+  .btn { display: block; width: 100%; padding: 14px; font-size: 15px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 12px; background: #1a73e8; color: #fff; }
+  .btn:disabled { background: #ccc; }
+  .result { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; font-size: 13px; min-height: 60px; white-space: pre-wrap; font-family: monospace; }
+</style>
+</head>
+<body>
+<h1>loginWithPassword fetch動作確認</h1>
+<button class="btn" id="btn" onclick="testLogin()">loginWithPassword を実行</button>
+<div class="result" id="result">待機中</div>
+<script>
+var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxglNWwMJ-4pjPKfuSj9AcRH98RRL9TeoKADknPRIVTbvjCIYMY66KTDsY6MTTH8qTZ/exec';
+
+function testLogin() {
+  var btn = document.getElementById('btn');
+  var result = document.getElementById('result');
+  btn.disabled = true;
+  btn.textContent = '送信中...';
+  result.textContent = '送信中...';
+
+  fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({
+      action: 'loginWithPassword',
+      params: {
+        staff_id: 'TEST-001',
+        password_plain: 'Test1234',
+        device_id: 'browser-test',
+        user_agent: navigator.userAgent
+      }
+    }),
+    redirect: 'follow'
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    btn.textContent = 'loginWithPassword を実行';
+    result.textContent = JSON.stringify(data, null, 2);
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = 'loginWithPassword を実行';
+    result.textContent = 'ERROR: ' + err.message;
+  });
+}
+</script>
+</body>
+</html>
